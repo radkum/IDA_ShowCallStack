@@ -1,6 +1,6 @@
 """
 todo:
--make it usable on x64
+-add debug names
 -add double clicking on each row
 """
 import idaapi
@@ -99,8 +99,10 @@ def getFuncInfo(callAddr, callArg, stackPtr, callAdrIsEsp = False):
     
     return rowList
 
-def checkPreviousIsCall(returnAddr):
+def checkPreviousIsCall(returnAddr, is_64bit):
     listOfCallLengths = [2, 3, 5, 6, 7]
+    if is_64bit:
+        listOfCallLengths.append(9)
 
     for callLength in listOfCallLengths:
         callAddr = returnAddr - callLength
@@ -115,7 +117,30 @@ def checkPreviousIsCall(returnAddr):
     return (False, None)
 
 def getAllCalls():
-    stackPtr = cpu.Esp
+    if idaapi.IDA_SDK_VERSION < 730:
+        is_64bit =  idaapi.get_inf_structure().is_64bit()
+        is_32bit =  idaapi.get_inf_structure().is_32bit()
+    else:
+        is_64bit = idaapi.inf_is_64bit()
+        is_32bit = idaapi.inf_is_32bit()
+
+            
+    if is_64bit:
+        print("this is x64")
+        stackPtr = cpu.Rsp
+        instPtr = cpu.Rip
+        ptrSize = 8
+        getPtrFun = idc.get_qword
+    elif is_32bit:
+        print("this is x32")
+        stackPtr = cpu.Esp
+        instPtr = cpu.Eip
+        ptrSize = 4
+        getPtrFun = idc.get_wide_dword
+    else:
+        #something wrong
+        return None 
+    
     calls = []
     
     segment = idaapi.getseg(stackPtr)
@@ -125,11 +150,11 @@ def getAllCalls():
         return calls
         
     #information about current fun
-    calls.append(getFuncInfo(cpu.Eip, "", stackPtr, True))
+    calls.append(getFuncInfo(instPtr, "", stackPtr, True))
     
-    for stackPtr in range(cpu.Esp, segment.end_ea + 4, 4):
-        funReturnAddr = idc.get_wide_dword(stackPtr)
-
+    for sPtr in range(stackPtr, segment.end_ea + ptrSize, ptrSize):
+        funReturnAddr = getPtrFun(sPtr)
+        
         if funReturnAddr == idaapi.BADADDR:
             #something wrong
             continue
@@ -148,7 +173,7 @@ def getAllCalls():
         if funReturnAddr == idaapi.BADADDR:
             continue
             
-        isCall, callAddr = checkPreviousIsCall(funReturnAddr)
+        isCall, callAddr = checkPreviousIsCall(funReturnAddr, is_64bit)
         if not isCall:
             continue
                     
@@ -158,7 +183,7 @@ def getAllCalls():
             idc.create_insn(callAddr)
         
         #save a call argument
-        calls.append(getFuncInfo(callAddr, print_operand(callAddr, 0), stackPtr))
+        calls.append(getFuncInfo(callAddr, print_operand(callAddr, 0), sPtr))
     
     return calls
 
