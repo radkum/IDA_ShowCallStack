@@ -4,5 +4,5 @@ Often I encounter a problem during debugging with IDA, because I want check a ca
 
 I used some ideas from "CallStackWalk.py" (https://github.com/EiNSTeiN-/idapython/blob/master/Scripts/CallStackWalk.py), eg. idea of determining of instruction.
 
-# Hot key
+### Hothey:
 todo
