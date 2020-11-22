@@ -1,7 +1,6 @@
 """
 todo:
 -add debug names
--add double clicking on each row
 """
 import idaapi
 import ida_funcs
@@ -11,7 +10,7 @@ import idc
 from idaapi import Choose
 
 class MyChoose(Choose):
-    def __init__(self, items, title):
+    def __init__(self, items, callsAddr, title):
         Choose.__init__(
             self, 
             title, 
@@ -27,6 +26,7 @@ class MyChoose(Choose):
             height = None)
         
         self.items = items
+        self.callsAddr = callsAddr
         self.icon = 5
         self.selcount = 0
         self.modal = False
@@ -46,17 +46,26 @@ class MyChoose(Choose):
     def OnGetLine(self, n):
         #print("getline %d" % n)
         return self.items[n]
-		
-    def OnCommand(self, n, cmd_id):
-        if cmd_id == self.cmd_jmp:
-            #print(str(n))
-            row = self.items[n]
-            idc.jumpto(int(row[0], 16))
+    
+    def OnRefresh(self, n):
+        start()
+        
+    def OnSelectLine(self, n):
+        print("index: {}, addr: {}".format(n, hex(self.callsAddr[n])))
+        ida_kernwin.jumpto(self.callsAddr[n])
+        return (Choose.NOTHING_CHANGED, ) 
+    
+    #redundant
+    # def OnCommand(self, n, cmd_id):
+        # if cmd_id == self.cmd_jmp:
+            # #print(str(n))
+            # row = self.items[n]
+            # idc.jumpto(int(row[0], 16))
 			
-    def show(self):
+    #def show(self):
         #print("getline %d" % n)
-        self.Show()
-        self.cmd_jmp = self.AddCommand("Jump to call")
+        #self.Show()
+        #self.cmd_jmp = self.AddCommand("Jump to call")
 
 
 def getFuncInfo(callAddr, callArg, stackPtr, callAdrIsEsp = False):
@@ -142,6 +151,7 @@ def getAllCalls():
         return None 
     
     calls = []
+    callsAddr = []
     
     segment = idaapi.getseg(stackPtr)
     
@@ -151,6 +161,7 @@ def getAllCalls():
         
     #information about current fun
     calls.append(getFuncInfo(instPtr, "", stackPtr, True))
+    callsAddr.append(instPtr)
     
     for sPtr in range(stackPtr, segment.end_ea + ptrSize, ptrSize):
         funReturnAddr = getPtrFun(sPtr)
@@ -169,9 +180,6 @@ def getAllCalls():
         #segment must be executable
         if (segment.perm & idaapi.SEGPERM_EXEC) == 0:
             continue
-			
-        if funReturnAddr == idaapi.BADADDR:
-            continue
             
         isCall, callAddr = checkPreviousIsCall(funReturnAddr, is_64bit)
         if not isCall:
@@ -184,28 +192,32 @@ def getAllCalls():
         
         #save a call argument
         calls.append(getFuncInfo(callAddr, print_operand(callAddr, 0), sPtr))
+        callsAddr.append(callAddr)
     
-    return calls
+    return calls, callsAddr
 
+def start():
+    processIsSuspended = False
 
-#program starts here
-processIsSuspended = False
-
-#check if process is suspended
-if idaapi.is_debugger_on():
-    if idaapi.get_process_state() == -1:
-        processIsSuspended = True
+    #check if process is suspended
+    if idaapi.is_debugger_on():
+        if idaapi.get_process_state() == -1:
+            processIsSuspended = True
+        else:
+            idaapi.warning("Please suspend the debugger first!")
     else:
-        idaapi.warning("Please suspend the debugger first!")
-else:
-    idaapi.warning("Please run the process first!")
-    
-#then start a stack checking
-if processIsSuspended:  
-    allCalls = getAllCalls()
-    if allCalls:
-        currThread = ida_dbg.get_current_thread()
-        title = "CallStack - thread: {}".format(currThread)
-        idaapi.close_chooser(title)
-        c = MyChoose(allCalls, title)
-        c.show()
+        idaapi.warning("Please run the process first!")
+        
+    #then start a stack checking
+    if processIsSuspended:
+        allCalls, allCallsAdresses = getAllCalls()
+        if allCalls:
+            currThread = ida_dbg.get_current_thread()
+            title = "CallStack - thread: {}".format(currThread)
+            idaapi.close_chooser(title)
+            c = MyChoose(allCalls, allCallsAdresses, title)
+            c.Show()
+
+#we need encapsulate a whole program in function, because we want support refresh
+#and for that, it is very helpfulll            
+start()
