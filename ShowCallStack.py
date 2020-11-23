@@ -1,11 +1,8 @@
-"""
-todo:
--add debug names
-"""
 import idaapi
 import ida_funcs
 import ida_bytes
 import ida_dbg
+import ida_ida
 import idc
 from idaapi import Choose
 
@@ -68,11 +65,12 @@ class MyChoose(Choose):
         #self.cmd_jmp = self.AddCommand("Jump to call")
 
 
-def getFuncInfo(callAddr, callArg, stackPtr, callAdrIsEsp = False):
+def getFuncInfo(callAddr, callArg, stackPtr, nearestName, callAdrIsEsp = False):
     rowList = []
     callOffset = "" 
     
     callAddrStr = '{:08x}'.format(callAddr)
+    #when print current function, then add " <ip>"
     if callAdrIsEsp:
         callAddrStr += " <ip>"
         
@@ -82,18 +80,29 @@ def getFuncInfo(callAddr, callArg, stackPtr, callAdrIsEsp = False):
     #"Call Argument", column
     rowList.append(callArg)
     
+    if nearestName:
+            funcInfo = nearestName.find(callAddr)
+                    
     funcName = ""
-    functionInfo = idaapi.get_func(callAddr)
-    if functionInfo:
-        funcName = idc.get_func_name(callAddr)
-        callOffset = "+" + hex(callAddr - functionInfo.start_ea)
+    callOffset = ""
     
+    if funcInfo:
+        funcEa, funcName, funcIndex = funcInfo
+        callOffset = "+" + hex(callAddr - funcEa)
+    else:
+        functionInfo = idaapi.get_func(callAddr)
+        if functionInfo:
+            funcName = idc.get_func_name(callAddr)
+            callOffset = "+" + hex(callAddr - functionInfo.start_ea)
+    
+    #when print current function, then add " <curr fun>"
     if callAdrIsEsp:
         funcName += " <curr fun>"
         
     #"Function name" column
     rowList.append(funcName)
     
+    #when print current function, then add " <curr pos>"
     if callAdrIsEsp:
         callOffset += " <curr pos>"
         
@@ -150,6 +159,17 @@ def getAllCalls():
         #something wrong
         return None 
     
+
+    #get debug names
+    #the full example: <ida_dir>\python\examples\debugging\show_debug_names.py
+    debugNamesList = ida_name.get_debug_names(
+        ida_ida.inf_get_min_ea(),
+        ida_ida.inf_get_max_ea())
+    
+    #NearestName definition: <ida_dir>\python\3\ida_name.py, line: 1351
+    #if your idapython NearestName is unavailable, comment this code
+    nearestName = idaapi.NearestName(debugNamesList)
+        
     calls = []
     callsAddr = []
     
@@ -160,7 +180,7 @@ def getAllCalls():
         return calls
         
     #information about current fun
-    calls.append(getFuncInfo(instPtr, "", stackPtr, True))
+    calls.append(getFuncInfo(instPtr, "", stackPtr, nearestName, True))
     callsAddr.append(instPtr)
     
     for sPtr in range(stackPtr, segment.end_ea + ptrSize, ptrSize):
@@ -176,7 +196,7 @@ def getAllCalls():
         #check if segment exists
         if not segment:
             continue
-            
+        
         #segment must be executable
         if (segment.perm & idaapi.SEGPERM_EXEC) == 0:
             continue
@@ -191,11 +211,13 @@ def getAllCalls():
             idc.create_insn(callAddr)
         
         #save a call argument
-        calls.append(getFuncInfo(callAddr, print_operand(callAddr, 0), sPtr))
+        calls.append(getFuncInfo(callAddr, print_operand(callAddr, 0), sPtr, nearestName))
         callsAddr.append(callAddr)
     
     return calls, callsAddr
 
+
+#program starts here
 def start():
     processIsSuspended = False
 
@@ -204,9 +226,9 @@ def start():
         if idaapi.get_process_state() == -1:
             processIsSuspended = True
         else:
-            idaapi.warning("Please suspend the debugger first!")
+            idaapi.warning("Please suspend the debugger!")
     else:
-        idaapi.warning("Please run the process first!")
+        idaapi.warning("Please run the process!")
         
     #then start a stack checking
     if processIsSuspended:
@@ -217,7 +239,5 @@ def start():
             idaapi.close_chooser(title)
             c = MyChoose(allCalls, allCallsAdresses, title)
             c.Show()
-
-#we need encapsulate a whole program in function, because we want support refresh
-#and for that, it is very helpfulll            
+            
 start()
