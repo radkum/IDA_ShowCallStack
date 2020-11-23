@@ -6,24 +6,24 @@ I used some ideas from "CallStackWalk.py" (https://github.com/EiNSTeiN-/idapytho
 
 ### Hotkey:
 To add Hotkey to you IDA:
--place "ShowCallStack.py" in "<ida_dir>/python"
--add to "<ida_dir>/idc/ida.idc" above main function following lines:
-    static showCallStack()
-    {
-       //it's not important there are '/' or '\\'
-       auto pythonCommand = "exec(open('" + idadir() + "/python/ShowCallStack.py').read())";
-       auto ret = exec_python(pythonCommand);
-       if(ret == 0)
-       {
-       print("showCallStack() Success! ");
-       }
-       else
-       {
-         print(ret);
-       }
-    }
-    
--add at the beginning of main function this line:
+-place "ShowCallStack.py" in "<ida_dir>/python"  
+-add to "<ida_dir>/idc/ida.idc" above main function following lines:  
+    static showCallStack()  
+    {  
+     &ensp;//it's not important there are '/' or '\\'  
+       &ensp;auto pythonCommand = "exec(open('" + idadir() + "/python/ShowCallStack.py').read())";  
+       &ensp;auto ret = exec_python(pythonCommand);  
+       &ensp;if(ret == 0)  
+       &ensp;{  
+       &ensp;&ensp;print("showCallStack() Success! ");  
+       &ensp;}  
+       &ensp;else  
+       &ensp;{  
+         &ensp;&ensp;print(ret);  
+       &ensp;}  
+    &ensp;}  
+      
+-add at the beginning of main function this line:  
   
-  //script is binded to "c". Change your shortcut if you want
-  AddHotkey("c", "showCallStack");
+  //script is binded to "c". Change your shortcut if you want  
+  AddHotkey("c", "showCallStack");  
