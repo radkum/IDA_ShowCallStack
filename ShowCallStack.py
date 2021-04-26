@@ -137,10 +137,13 @@ def checkPreviousIsCall(returnAddr, is_64bit):
 def getAllCalls():
     if idaapi.IDA_SDK_VERSION < 730:
         is_64bit =  idaapi.get_inf_structure().is_64bit()
-        is_32bit =  idaapi.get_inf_structure().is_32bit()
+        is_32bit =  idaapi.get_inf_structure().is_32bit() and not is_64bit
+    elif idaapi.IDA_SDK_VERSION < 760:
+        is_64bit = idaapi.inf_is_64bit()
+        is_32bit = idaapi.inf_is_32bit() and not is_64bit
     else:
         is_64bit = idaapi.inf_is_64bit()
-        is_32bit = idaapi.inf_is_32bit()
+        is_32bit = idaapi.inf_is_32bit_exactly()
 
             
     if is_64bit:
