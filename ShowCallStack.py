@@ -7,7 +7,7 @@ import idc
 from idaapi import Choose
 
 class MyChoose(Choose):
-    def __init__(self, items, callsAddr, title):
+    def __init__(self, items, call_addr_list, title):
         Choose.__init__(
             self, 
             title, 
@@ -23,7 +23,7 @@ class MyChoose(Choose):
             height = None)
         
         self.items = items
-        self.callsAddr = callsAddr
+        self.call_addr_list = call_addr_list
         self.icon = 5
         self.selcount = 0
         self.modal = False
@@ -48,8 +48,8 @@ class MyChoose(Choose):
         start()
         
     def OnSelectLine(self, n):
-        print("index: {}, addr: {}".format(n, hex(self.callsAddr[n])))
-        ida_kernwin.jumpto(self.callsAddr[n])
+        print("index: {}, addr: {}".format(n, hex(self.call_addr_list[n])))
+        ida_kernwin.jumpto(self.call_addr_list[n])
         return (Choose.NOTHING_CHANGED, ) 
     
     #redundant
@@ -64,77 +64,100 @@ class MyChoose(Choose):
         #self.Show()
         #self.cmd_jmp = self.AddCommand("Jump to call")
 
-
-def getFuncInfo(callAddr, callArg, stackPtr, nearestName, callAdrIsEsp = False):
-    rowList = []
-    callOffset = "" 
+def extract_info_from_nearest_name(call_addr, nearest_name):
+    if nearest_name:
+        nearest_fun_debug_info = nearest_name.find(call_addr)
+        
+        if nearest_fun_debug_info:
+            nearest_fun_debug_info_Ea, nearest_fun_debug_info_Name, index = nearest_fun_debug_info
+            nearest_fun_debug_info_EndEa = find_func_end(nearest_fun_debug_info_Ea)
+            #print("nearest_fun_debug_info_Name: {}, call_addr: {:X}, nearest_fun_debug_info_Ea: {:X}, nearest_fun_debug_info_EndEa: {:X}".format(nearest_fun_debug_info_Name, call_addr, nearest_fun_debug_info_Ea, nearest_fun_debug_info_EndEa))
+            if call_addr >= nearest_fun_debug_info_Ea and call_addr <= nearest_fun_debug_info_EndEa:
+                function_ea = nearest_fun_debug_info_Ea
+                function_name = nearest_fun_debug_info_Name
+                return (True, function_name, "+0x{:X}".format(call_addr - function_ea))
+                
+    return (False, None, None)
     
-    callAddrStr = '{:08x}'.format(callAddr)
+def get_func_name_and_call_offset(call_addr, nearest_name):
+    function_name = "unknown name"
+    call_offset_int = 0
+    
+    success, function_name, call_offset_in_function = extract_info_from_nearest_name(call_addr, nearest_name)
+
+    if success:
+        return (function_name, call_offset_in_function)
+    else:
+        #failed to get info from nearest name
+        function_ea = idc.prev_head(call_addr, ida_ida.inf_get_min_ea()) 
+
+        function_info = idaapi.get_func(function_ea)
+        if not function_info:
+            ida_funcs.add_func(function_ea, idaapi.BADADDR)
+            function_info = idaapi.get_func(function_ea)
+            
+        if function_info:
+            function_name = idc.get_func_name(function_ea)
+            call_offset_int = call_addr - function_ea
+                        
+        call_offset_in_function = "+0x{:X}".format(call_offset_int)
+        return (function_name, call_offset_in_function)
+
+def get_info_about_call(call_addr, call_arg, stack_ptr, nearest_name, current_function = False):
+    one_row = [] 
+    
+    call_addr_str = '{:08X}'.format(call_addr)
     #when print current function, then add " <ip>"
-    if callAdrIsEsp:
-        callAddrStr += " <ip>"
+    if current_function:
+        call_addr_str += " <ip>"
         
     #"Call Address" column
-    rowList.append(callAddrStr)
+    one_row.append(call_addr_str)
     
     #"Call Argument", column
-    rowList.append(callArg)
+    one_row.append(call_arg)
     
-    if nearestName:
-            funcInfo = nearestName.find(callAddr)
-                    
-    funcName = ""
-    callOffset = ""
-    
-    if funcInfo:
-        funcEa, funcName, funcIndex = funcInfo
-        callOffset = "+" + hex(callAddr - funcEa)
-    else:
-        functionInfo = idaapi.get_func(callAddr)
-        if functionInfo:
-            funcName = idc.get_func_name(callAddr)
-            callOffset = "+" + hex(callAddr - functionInfo.start_ea)
+    function_name, call_offset_in_function = get_func_name_and_call_offset(call_addr, nearest_name)
     
     #when print current function, then add " <curr fun>"
-    if callAdrIsEsp:
-        funcName += " <curr fun>"
+    if current_function:
+        function_name += " <curr fun>"
         
     #"Function name" column
-    rowList.append(funcName)
+    one_row.append(function_name)
     
     #when print current function, then add " <curr pos>"
-    if callAdrIsEsp:
-        callOffset += " <curr pos>"
+    if current_function:
+        call_offset_in_function += " <curr pos>"
         
     #Function offset" column
-    rowList.append(callOffset)
+    one_row.append(call_offset_in_function)
     
     #"Segment" columns
-    rowList.append(idaapi.get_segm_name(idaapi.getseg(callAddr)))
+    one_row.append(idaapi.get_segm_name(idaapi.getseg(call_addr)))
     
     #"Stack pointer" column
-    rowList.append(" [" + hex(stackPtr) + "]")
+    one_row.append(" 0x{:X}".format(stack_ptr))
     
-    return rowList
+    return one_row
 
-def checkPreviousIsCall(returnAddr, is_64bit):
-    listOfCallLengths = [2, 3, 5, 6, 7]
+def check_previous_inst_is_call(return_addr, is_64bit):
+    list_of_call_inst_lengths = [2, 3, 5, 6, 7]
     if is_64bit:
-        listOfCallLengths.append(9)
+        list_of_call_inst_lengths.append(9)
 
-    for callLength in listOfCallLengths:
-        callAddr = returnAddr - callLength
-		
+    for call_length in list_of_call_inst_lengths:
+        call_addr = return_addr - call_length
+        
         try:
-            if idaapi.is_call_insn(callAddr):
-                #print(idc.create_insn(callAddr))
-                return (True, callAddr)
+            if idaapi.is_call_insn(call_addr) and idc.create_insn(call_addr) and print_insn_mnem(call_addr) == "call":
+                return (True, call_addr)
         except ValueError:
             continue
             
     return (False, None)
 
-def getAllCalls():
+def set_version_and_platform_specific_elements():
     if idaapi.IDA_SDK_VERSION < 730:
         is_64bit =  idaapi.get_inf_structure().is_64bit()
         is_32bit =  idaapi.get_inf_structure().is_32bit() and not is_64bit
@@ -148,21 +171,22 @@ def getAllCalls():
             
     if is_64bit:
         print("this is x64")
-        stackPtr = cpu.Rsp
-        instPtr = cpu.Rip
-        ptrSize = 8
-        getPtrFun = idc.get_qword
+        stack_ptr = cpu.Rsp
+        inst_ptr = cpu.Rip
+        ptr_size = 8
+        pfn_get_ptr = idc.get_qword
     elif is_32bit:
         print("this is x32")
-        stackPtr = cpu.Esp
-        instPtr = cpu.Eip
-        ptrSize = 4
-        getPtrFun = idc.get_wide_dword
-    else:
-        #something wrong
-        return None 
-    
+        stack_ptr = cpu.Esp
+        inst_ptr = cpu.Eip
+        ptr_size = 4
+        pfn_get_ptr = idc.get_wide_dword
+        
+    return (is_64bit, stack_ptr, inst_ptr, ptr_size, pfn_get_ptr)
 
+def get_all_calls():
+    is_64bit, stack_ptr, inst_ptr, ptr_size, pfn_get_ptr = set_version_and_platform_specific_elements()
+    
     #get debug names
     #the full example: <ida_dir>\python\examples\debugging\show_debug_names.py
     debugNamesList = ida_name.get_debug_names(
@@ -171,76 +195,70 @@ def getAllCalls():
     
     #NearestName definition: <ida_dir>\python\3\ida_name.py, line: 1351
     #if your idapython NearestName is unavailable, comment this code
-    nearestName = idaapi.NearestName(debugNamesList)
+    nearest_name = idaapi.NearestName(debugNamesList)
         
-    calls = []
-    callsAddr = []
+    call_list = []
+    call_addr_list = []
     
-    segment = idaapi.getseg(stackPtr)
+    stack_segment = idaapi.getseg(stack_ptr)
     
-    if not segment:
-        idaapi.warning("Segment is None")
-        return calls
+    if not stack_segment:
+        idaapi.warning("Stack segment is None")
+        return call_list
         
     #information about current fun
-    calls.append(getFuncInfo(instPtr, "", stackPtr, nearestName, True))
-    callsAddr.append(instPtr)
+    call_list.append(get_info_about_call(inst_ptr, "", stack_ptr, nearest_name, True))
+    call_addr_list.append(inst_ptr)
     
-    for sPtr in range(stackPtr, segment.end_ea + ptrSize, ptrSize):
-        funReturnAddr = getPtrFun(sPtr)
+    for sp in range(stack_ptr, stack_segment.end_ea + ptr_size, ptr_size):
+        return_addr = pfn_get_ptr(sp)
         
-        if funReturnAddr == idaapi.BADADDR:
-            #something wrong
+        if return_addr == idaapi.BADADDR:
             continue
         
-        #before 'funReturnAddr' should be call
-        segment = idaapi.getseg(funReturnAddr)
+        curr_segment = idaapi.getseg(return_addr)
         
-        #check if segment exists
-        if not segment:
-            continue
-        
-        #segment must be executable
-        if (segment.perm & idaapi.SEGPERM_EXEC) == 0:
+        #segmenst must exists and be executable
+        if not curr_segment or (curr_segment.perm & idaapi.SEGPERM_EXEC) == 0:
             continue
             
-        isCall, callAddr = checkPreviousIsCall(funReturnAddr, is_64bit)
-        if not isCall:
+        is_call, curr_call_addr = check_previous_inst_is_call(return_addr, is_64bit)
+        if not is_call:
             continue
                     
         #if bytes are not disassembled, then do it
-        flags = ida_bytes.get_full_flags(callAddr)
+        flags = ida_bytes.get_full_flags(curr_call_addr)
         if not ida_bytes.is_code(flags):
-            idc.create_insn(callAddr)
+            idc.create_insn(curr_call_addr)
         
         #save a call argument
-        calls.append(getFuncInfo(callAddr, print_operand(callAddr, 0), sPtr, nearestName))
-        callsAddr.append(callAddr)
+        call_list.append(get_info_about_call(curr_call_addr, print_operand(curr_call_addr, 0), sp, nearest_name))
+        call_addr_list.append(curr_call_addr)
     
-    return calls, callsAddr
+    return call_list, call_addr_list
 
 
 #program starts here
 def start():
-    processIsSuspended = False
+    process_is_suspended = False
 
     #check if process is suspended
     if idaapi.is_debugger_on():
         if idaapi.get_process_state() == -1:
-            processIsSuspended = True
+            process_is_suspended = True
         else:
             idaapi.warning("Please suspend the debugger!")
     else:
         idaapi.warning("Please run the process!")
         
     #then start a stack checking
-    if processIsSuspended:
-        allCalls, allCallsAdresses = getAllCalls()
-        if allCalls:
-            currThread = ida_dbg.get_current_thread()
-            title = "CallStack - thread: {}".format(currThread)
+    if process_is_suspended:
+        call_list, call_addr_list = get_all_calls()
+        if call_list:
+            curr_thread = ida_dbg.get_current_thread()
+            title = "CallStack - thread: {}".format(curr_thread)
             idaapi.close_chooser(title)
-            c = MyChoose(allCalls, allCallsAdresses, title)
+            c = MyChoose(call_list, call_addr_list, title)
             c.Show()
             
 start()
