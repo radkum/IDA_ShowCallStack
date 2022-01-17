@@ -6,6 +6,7 @@ I used some ideas from "CallStackWalk.py" (https://github.com/EiNSTeiN-/idapytho
 
 ### Hotkey:
 To add Hotkey to you IDA:
+
 -place "ShowCallStack.py" in "<ida_dir>/python"  
 -add to "<ida_dir>/idc/ida.idc" above main function following lines:
 ```
