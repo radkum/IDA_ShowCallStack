@@ -28,6 +28,6 @@ static showCallStack()
 -add at the beginning of main function this line:  
   
 ```
-  //script is binded to "c". Change your shortcut if you want  
-  AddHotkey("c", "showCallStack");  
+  //script is binded to "z" key. Change your shortcut if you want  
+  AddHotkey("z", "showCallStack");  
 ```
