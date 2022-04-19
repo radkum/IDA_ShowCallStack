@@ -11,7 +11,7 @@ DEBUG = 3
 INFO = 2
 WARNING = 1
 
-LogLevel = 0
+LogLevel = 3
 def debug(*arg):
     if LogLevel >= DEBUG:
         unpack_and_print(arg)
@@ -66,13 +66,15 @@ class FunctionAssemblyCalculator:
                 continue
             break;
     def findRetInstruction(prev_ea):
-        debug("iterateByPaddingToTheLastInstruction. Address: 0x{:X}".format(prev_ea))
+        debug("findRetInstruction. Address: 0x{:X}".format(prev_ea))
         for i in range(0,256): 
             debug(idc.print_insn_mnem(prev_ea))
             if "ret" in idc.print_insn_mnem(prev_ea):
                 debug("ret found. Address: 0x{:X}".format(prev_ea))
                 break
-                 
+            elif idc.print_insn_mnem(prev_ea) == "jmp" and idc.print_operand(prev_ea, 0) == "atexit":
+                debug("probably mfc")
+                break
             if idaapi.decode_prev_insn(insn, prev_ea) != idaapi.BADADDR:
                 prev_ea = idaapi.decode_prev_insn(insn, prev_ea)
             else:
