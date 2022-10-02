@@ -410,7 +410,7 @@ def get_all_calls():
         sp = cpu.Esp
         ip = cpu.Eip
         
-    if idaapi.getseg(cpu.Rsp) is None:
+    if idaapi.getseg(sp) is None:
         warning("Stack segment is None")
         return False
         
